@@ -1,70 +1,118 @@
-# Getting Started with Create React App
+# TrueSynth: Multi-LLM Hallucination Reduction System
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+TrueSynth is a sophisticated system that uses multiple Large Language Models (LLMs) in a "Generate, Verify, Compare" architecture to reduce hallucinations and improve the factual accuracy of AI-generated answers. It is composed of a Python FastAPI backend and a React frontend.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+  * **Multi-LLM Architecture:** Utilizes three different LLMs for generating, verifying, and comparing answers to provide a more reliable result.
+  * **Fact-Checking with Web Search:** The verifier model uses Tavily Search to ground its answers in real-world, up-to-date information.
+  * **React Frontend:** A user-friendly interface to interact with the system, view the final answer, and see the intermediate steps of the generation process.
+  * **FastAPI Backend:** A robust and high-performance backend that serves the multi-LLM system via a REST API.
+  * **Health Check Endpoint:** An endpoint to check the status of the API and the configuration of the required API keys.
 
-### `npm start`
+## Architecture
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+The system is composed of a frontend application and a backend API.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+### Backend
 
-### `npm test`
+The backend is a FastAPI application that orchestrates the multi-LLM system. It uses three different LLMs from OpenRouter:
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+1.  **Generator Model (`meta-llama/llama-3.3-8b-instruct:free`):** Generates an initial, creative answer to the user's query.
+2.  **Verifier Model (`deepseek/deepseek-r1-0528-qwen3-8b:free`):** Takes the user's query and search results from the Tavily Search API to generate a fact-based answer.
+3.  **Comparer Model (`nvidia/nemotron-nano-9b-v2:free`):** Compares the answers from the Generator and Verifier models and synthesizes a final, corrected answer.
 
-### `npm run build`
+The backend exposes an API to process queries and provides health status checks.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### Frontend
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+The frontend is a React application that provides a user interface for the system. It allows users to:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+  * Enter a query.
+  * View the final fact-checked answer.
+  * See the intermediate outputs from the Generator and Verifier models.
+  * View the search results used by the Verifier model.
 
-### `npm run eject`
+## Getting Started
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### Prerequisites
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+  * Node.js and npm for the frontend.
+  * Python 3.7+ and pip for the backend.
+  * API keys for OpenRouter and Tavily.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### Backend Setup
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+1.  **Clone the repository:**
 
-## Learn More
+    ```bash
+    git clone https://github.com/rishabpuranika/truesynth.git
+    cd truesynth/backend
+    ```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+2.  **Create a virtual environment and install dependencies:**
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+    pip install -r requirements.txt
+    ```
 
-### Code Splitting
+3.  **Set up environment variables:**
+    Create a `.env` file in the `backend` directory and add your API keys:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+    ```
+    OPENROUTER_API_KEY1="your_openrouter_api_key"
+    OPENROUTER_API_KEY2="your_openrouter_api_key"
+    OPENROUTER_API_KEY3="your_openrouter_api_key"
+    TAVILY_API_KEY="your_tavily_api_key"
+    ```
 
-### Analyzing the Bundle Size
+4.  **Run the backend server:**
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+    ```bash
+    uvicorn app:app --reload --port 8000
+    ```
 
-### Making a Progressive Web App
+    The backend will be running at `http://localhost:8000`.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+### Frontend Setup
 
-### Advanced Configuration
+1.  **Navigate to the frontend directory:**
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+    ```bash
+    cd ../frontend
+    ```
 
-### Deployment
+2.  **Install dependencies:**
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+    ```bash
+    npm install
+    ```
 
-### `npm run build` fails to minify
+3.  **Start the frontend development server:**
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+    ```bash
+    npm start
+    ```
+
+    The frontend will be running at `http://localhost:3000`.
+
+## API Endpoints
+
+The backend provides the following API endpoints:
+
+  * `GET /`: Root endpoint with a welcome message.
+  * `GET /api/health`: Health check endpoint to verify the API status and API key configurations.
+  * `POST /api/query`: Processes a user's query and returns the generated, verified, and final answers.
+  * `GET /api/test-models`: Endpoint to test the individual models.
+  * `GET /api/example-queries`: Returns a list of example queries.
+
+## Environment Variables
+
+The following environment variables are required for the backend to function correctly:
+
+  * `OPENROUTER_API_KEY1`: Your OpenRouter API key for the Generator model.
+  * `OPENROUTER_API_KEY2`: Your OpenRouter API key for the Verifier model.
+  * `OPENROUTER_API_KEY3`: Your OpenRouter API key for the Comparer model.
+  * `TAVILY_API_KEY`: Your Tavily Search API key.
