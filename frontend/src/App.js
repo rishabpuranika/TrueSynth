@@ -14,6 +14,7 @@ import {
   Brain,
   FileText
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -120,7 +121,7 @@ function App() {
         </div>
         <div className="step-content">
           <div className="step-title">Generating Initial Answer</div>
-          <div className="step-subtitle">Grok-4-fast Model</div>
+          <div className="step-subtitle">LLama3.3-8b Model</div>
         </div>
       </div>
       <div className={`step ${getStepStatus(2)}`}>
@@ -505,7 +506,7 @@ function App() {
             <h1>Multi-LLM Hallucination Reduction System</h1>
           </div>
           <div className="header-subtitle">
-            Powered by Grok, DeepSeek, and Nemotron via OpenRouter
+            Powered by LLama, DeepSeek, and Nemotron via OpenRouter
           </div>
         </div>
       </header>
@@ -596,7 +597,8 @@ function App() {
                 Final Fact-Checked Answer
               </h3>
               <div className="final-answer-content">
-                {results.final_answer}
+                {/* 👇 Use ReactMarkdown here */}
+                <ReactMarkdown children={results.final_answer} />
               </div>
             </div>
 
@@ -632,7 +634,7 @@ function App() {
                     <div className="detail-card">
                       <h4>
                         <Sparkles size={20} />
-                        Generator Model (Grok-4-fast)
+                        Generator Model (LLama-3.3-8b)
                       </h4>
                       <div className="detail-card-content">
                         {results.generator_answer}
