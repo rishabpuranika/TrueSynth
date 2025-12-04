@@ -38,7 +38,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 generator_llm = None
 if openrouter_api_key1:
     generator_llm = ChatOpenAI(
-        model="meta-llama/llama-3.3-8b-instruct:free",
+        model="meta-llama/llama-3.3-70b-instruct:free",
         temperature=0.7,
         openai_api_base=OPENROUTER_BASE_URL,
         openai_api_key=openrouter_api_key1,
@@ -52,7 +52,7 @@ if openrouter_api_key1:
 verifier_llm = None
 if openrouter_api_key2:
     verifier_llm = ChatOpenAI(
-        model="deepseek/deepseek-r1-0528-qwen3-8b:free",
+        model="tngtech/deepseek-r1t-chimera:free",
         temperature=0.2,
         openai_api_base=OPENROUTER_BASE_URL,
         openai_api_key=openrouter_api_key2,

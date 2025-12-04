@@ -11,6 +11,7 @@ import os
 import asyncio
 from datetime import datetime
 import dotenv
+import database
 
 # Import the LLM system module
 from llm_system import (
@@ -32,6 +33,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Initialize Database
+@app.on_event("startup")
+async def startup_event():
+    database.init_db()
+
 # Configure CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +51,7 @@ app.add_middleware(
 class QueryRequest(BaseModel):
     query: str
     verbose: Optional[bool] = True
+    chat_id: Optional[str] = None
 
 class QueryResponse(BaseModel):
     query: str
@@ -56,6 +63,7 @@ class QueryResponse(BaseModel):
     timestamp: str
     success: bool
     error: Optional[str] = None
+    chat_id: Optional[str] = None
 
 class HealthResponse(BaseModel):
     status: str
@@ -116,6 +124,16 @@ async def health_check():
         timestamp=datetime.now().isoformat()
     )
 
+@app.get("/api/chats")
+async def get_chats():
+    """Get all chat sessions"""
+    return await asyncio.to_thread(database.get_all_chats)
+
+@app.get("/api/chats/{chat_id}")
+async def get_chat_details(chat_id: str):
+    """Get messages for a specific chat"""
+    return await asyncio.to_thread(database.get_chat_messages, chat_id)
+
 @app.post("/api/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
     """
@@ -128,6 +146,23 @@ async def process_query(request: QueryRequest):
     """
     start_time = datetime.now()
     
+    # Handle Chat ID
+    chat_id = request.chat_id
+    if not chat_id:
+        # Create new chat if not provided
+        # Use the query as the title (truncated)
+        title = request.query[:50] + "..." if len(request.query) > 50 else request.query
+        chat_id = await asyncio.to_thread(database.create_chat, title)
+    
+    # Save User Message
+    await asyncio.to_thread(
+        database.add_message, 
+        chat_id, 
+        "user", 
+        request.query, 
+        None
+    )
+
     try:
         # Check API keys
         if not all([
@@ -180,32 +215,57 @@ async def process_query(request: QueryRequest):
                 if result_dict:
                     parsed_search_results.append(result_dict)
         
-        return QueryResponse(
-            query=request.query,
-            generator_answer=generator_answer if request.verbose else None,
-            verifier_answer=verifier_answer if request.verbose else None,
-            final_answer=final_answer,
-            search_results=parsed_search_results if request.verbose else None,
-            processing_time=processing_time,
-            timestamp=datetime.now().isoformat(),
-            success=True,
-            error=None
+        # Prepare response data
+        response_data = {
+            "query": request.query,
+            "generator_answer": generator_answer if request.verbose else None,
+            "verifier_answer": verifier_answer if request.verbose else None,
+            "final_answer": final_answer,
+            "search_results": parsed_search_results if request.verbose else None,
+            "processing_time": processing_time,
+            "timestamp": datetime.now().isoformat(),
+            "success": True,
+            "error": None,
+            "chat_id": chat_id
+        }
+
+        # Save Assistant Message
+        await asyncio.to_thread(
+            database.add_message,
+            chat_id,
+            "assistant",
+            final_answer,
+            response_data # Save full details in metadata
         )
+
+        return QueryResponse(**response_data)
         
     except Exception as e:
         processing_time = (datetime.now() - start_time).total_seconds()
         
-        return QueryResponse(
-            query=request.query,
-            generator_answer=None,
-            verifier_answer=None,
-            final_answer=f"Error processing query: {str(e)}",
-            search_results=None,
-            processing_time=processing_time,
-            timestamp=datetime.now().isoformat(),
-            success=False,
-            error=str(e)
+        error_response = {
+            "query": request.query,
+            "generator_answer": None,
+            "verifier_answer": None,
+            "final_answer": f"Error processing query: {str(e)}",
+            "search_results": None,
+            "processing_time": processing_time,
+            "timestamp": datetime.now().isoformat(),
+            "success": False,
+            "error": str(e),
+            "chat_id": chat_id
+        }
+        
+        # Save Error Message
+        await asyncio.to_thread(
+            database.add_message,
+            chat_id,
+            "assistant",
+            error_response["final_answer"],
+            error_response
         )
+
+        return QueryResponse(**error_response)
 
 @app.get("/api/test-models", response_model=ModelTestResponse)
 async def test_models():
