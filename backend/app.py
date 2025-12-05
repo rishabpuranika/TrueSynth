@@ -134,6 +134,15 @@ async def get_chat_details(chat_id: str):
     """Get messages for a specific chat"""
     return await asyncio.to_thread(database.get_chat_messages, chat_id)
 
+@app.delete("/api/chats/{chat_id}")
+async def delete_chat(chat_id: str):
+    """Delete a chat session"""
+    try:
+        await asyncio.to_thread(database.delete_chat, chat_id)
+        return {"status": "success", "message": "Chat deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
     """

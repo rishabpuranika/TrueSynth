@@ -17,7 +17,8 @@ import {
   Plus,
   Menu,
   X,
-  Trash2
+  Trash2,
+  MoreVertical
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -36,6 +37,7 @@ function App() {
   const [currentChatId, setCurrentChatId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [menuOpenId, setMenuOpenId] = useState(null);
 
   const messagesEndRef = useRef(null);
 
@@ -60,6 +62,38 @@ function App() {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  const deleteChat = async (e, chatId) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this chat?")) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/chats/${chatId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        setChats(prev => prev.filter(c => c.id !== chatId));
+        if (currentChatId === chatId) {
+          startNewChat();
+        }
+      }
+    } catch (err) {
+      console.error('Failed to delete chat:', err);
+    }
+  };
+
+  const toggleMenu = (e, chatId) => {
+    e.stopPropagation();
+    setMenuOpenId(menuOpenId === chatId ? null : chatId);
+  };
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setMenuOpenId(null);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const fetchChats = async () => {
     try {
@@ -384,19 +418,17 @@ function App() {
         }
 
         .chat-item {
+          position: relative;
           padding: 0.75rem;
           margin-bottom: 0.5rem;
           border-radius: 8px;
           color: rgba(255, 255, 255, 0.8);
           cursor: pointer;
           transition: all 0.2s;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          font-size: 0.9rem;
           display: flex;
           align-items: center;
           gap: 0.5rem;
+          padding-right: 2rem;
         }
 
         .chat-item:hover {
@@ -407,6 +439,74 @@ function App() {
         .chat-item.active {
           background: rgba(255, 255, 255, 0.15);
           color: white;
+        }
+
+        .chat-item-title {
+          flex: 1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .chat-menu-btn {
+          position: absolute;
+          right: 0.5rem;
+          top: 50%;
+          transform: translateY(-50%);
+          background: transparent;
+          border: none;
+          color: rgba(255, 255, 255, 0.6);
+          padding: 4px;
+          border-radius: 4px;
+          cursor: pointer;
+          display: none;
+          transition: all 0.2s;
+        }
+
+        .chat-item:hover .chat-menu-btn,
+        .chat-menu-btn.active {
+          display: block;
+        }
+
+        .chat-menu-btn:hover {
+          background: rgba(255, 255, 255, 0.2);
+          color: white;
+        }
+
+        .chat-menu-dropdown {
+          position: absolute;
+          right: 0;
+          top: 100%;
+          background: #2d3748;
+          border: 1px solid #4a5568;
+          border-radius: 6px;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+          z-index: 100;
+          min-width: 120px;
+          overflow: hidden;
+        }
+
+        .chat-menu-item {
+          padding: 8px 12px;
+          color: #e2e8f0;
+          font-size: 0.85rem;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          transition: background 0.2s;
+        }
+
+        .chat-menu-item:hover {
+          background: #4a5568;
+        }
+
+        .chat-menu-item.delete {
+          color: #fc8181;
+        }
+
+        .chat-menu-item.delete:hover {
+          background: rgba(252, 129, 129, 0.1);
         }
 
         /* Main Content Styles */
@@ -735,7 +835,23 @@ function App() {
               onClick={() => setCurrentChatId(chat.id)}
             >
               <MessageSquare size={16} />
-              {chat.title}
+              <span className="chat-item-title">{chat.title}</span>
+
+              <button
+                className={`chat-menu-btn ${menuOpenId === chat.id ? 'active' : ''}`}
+                onClick={(e) => toggleMenu(e, chat.id)}
+              >
+                <MoreVertical size={16} />
+              </button>
+
+              {menuOpenId === chat.id && (
+                <div className="chat-menu-dropdown">
+                  <div className="chat-menu-item delete" onClick={(e) => deleteChat(e, chat.id)}>
+                    <Trash2 size={14} />
+                    Delete
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

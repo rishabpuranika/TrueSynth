@@ -120,3 +120,17 @@ def update_chat_title(chat_id: str, title: str):
     c.execute('UPDATE chats SET title = ? WHERE id = ?', (title, chat_id))
     conn.commit()
     conn.close()
+
+def delete_chat(chat_id: str):
+    """Delete a chat and all its messages"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    # Delete messages first (manual cascade)
+    c.execute('DELETE FROM messages WHERE chat_id = ?', (chat_id,))
+    
+    # Delete the chat
+    c.execute('DELETE FROM chats WHERE id = ?', (chat_id,))
+    
+    conn.commit()
+    conn.close()
