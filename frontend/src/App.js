@@ -18,7 +18,13 @@ import {
   Menu,
   X,
   Trash2,
-  MoreVertical
+  MoreVertical,
+  Heart,
+  Scale,
+  DollarSign,
+  GraduationCap,
+  Code,
+  Bot
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -39,12 +45,18 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [menuOpenId, setMenuOpenId] = useState(null);
 
+  // Domain State
+  const [domains, setDomains] = useState({});
+  const [selectedDomain, setSelectedDomain] = useState('general');
+  const [domainSelectorOpen, setDomainSelectorOpen] = useState(false);
+
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
     fetchExampleQueries();
     checkHealth();
     fetchChats();
+    fetchDomains();
   }, []);
 
   useEffect(() => {
@@ -139,11 +151,34 @@ function App() {
     }
   };
 
+  const fetchDomains = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/domains`);
+      const data = await response.json();
+      setDomains(data.domains);
+    } catch (err) {
+      console.error('Failed to fetch domains:', err);
+    }
+  };
+
   const startNewChat = () => {
     setCurrentChatId(null);
     setMessages([]);
     setQuery('');
     setError(null);
+    setSelectedDomain('general');
+  };
+
+  const getDomainIcon = (domainKey) => {
+    const iconMap = {
+      'general': Bot,
+      'medical': Heart,
+      'legal': Scale,
+      'financial': DollarSign,
+      'educational': GraduationCap,
+      'technical': Code
+    };
+    return iconMap[domainKey] || Bot;
   };
 
   const handleSubmit = async (e) => {
@@ -179,7 +214,8 @@ function App() {
         body: JSON.stringify({
           query: userQuery,
           verbose: true,
-          chat_id: currentChatId
+          chat_id: currentChatId,
+          domain: selectedDomain
         })
       });
 
@@ -268,13 +304,15 @@ function App() {
 
   const ResultCard = ({ result }) => {
     const [showDetails, setShowDetails] = useState(false);
+    const domainConfig = result.domain_config || domains[result.domain];
 
     return (
       <div className="results-section">
         <div className="final-answer">
           <h3>
             <CheckCircle2 size={24} />
-            Final Fact-Checked Answer
+            {domainConfig ? `${domainConfig.name} Answer` : 'Final Fact-Checked Answer'}
+            {domainConfig && React.createElement(getDomainIcon(result.domain), { size: 20, style: { marginLeft: '0.5rem' } })}
           </h3>
           <div className="final-answer-content">
             <ReactMarkdown children={result.final_answer} />
@@ -306,21 +344,23 @@ function App() {
 
             {showDetails && (
               <div className="details-content">
-                <div className="detail-card">
-                  <h4>
-                    <Sparkles size={20} />
-                    Generator Model (LLama-3.3-8b)
-                  </h4>
+                 <div className="detail-card">
+                   <h4>
+                     <Sparkles size={20} />
+                     Generator Model (LLama-3.3-8b)
+                     {domainConfig && <span style={{fontSize: '0.8rem', opacity: 0.8}}> - {domainConfig.name} Context</span>}
+                   </h4>
                   <div className="detail-card-content">
                     {result.generator_answer}
                   </div>
                 </div>
 
-                <div className="detail-card">
-                  <h4>
-                    <Shield size={20} />
-                    Verifier Model (DeepSeek with Search)
-                  </h4>
+                 <div className="detail-card">
+                   <h4>
+                     <Shield size={20} />
+                     Verifier Model (DeepSeek with Search)
+                     {domainConfig && <span style={{fontSize: '0.8rem', opacity: 0.8}}> - {domainConfig.name} Verification</span>}
+                   </h4>
                   <div className="detail-card-content">
                     {result.verifier_answer}
                   </div>
@@ -409,6 +449,82 @@ function App() {
 
         .new-chat-btn:hover {
           background: rgba(255, 255, 255, 0.2);
+        }
+
+        .domain-selector {
+          margin: 1rem;
+          margin-top: 0;
+        }
+
+        .domain-selector-btn {
+          width: calc(100% - 2rem);
+          padding: 0.75rem;
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 8px;
+          color: white;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          cursor: pointer;
+          transition: all 0.2s;
+          font-size: 0.9rem;
+        }
+
+        .domain-selector-btn:hover {
+          background: rgba(255, 255, 255, 0.2);
+        }
+
+        .domain-selector-btn .rotated {
+          transform: rotate(180deg);
+        }
+
+        .domain-dropdown {
+          margin-top: 0.5rem;
+          background: rgba(0, 0, 0, 0.3);
+          border-radius: 8px;
+          overflow: hidden;
+          backdrop-filter: blur(10px);
+        }
+
+        .domain-option {
+          width: 100%;
+          padding: 0.75rem;
+          background: transparent;
+          border: none;
+          color: rgba(255, 255, 255, 0.8);
+          display: flex;
+          align-items: flex-start;
+          gap: 0.5rem;
+          cursor: pointer;
+          transition: all 0.2s;
+          text-align: left;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .domain-option:last-child {
+          border-bottom: none;
+        }
+
+        .domain-option:hover,
+        .domain-option.active {
+          background: rgba(255, 255, 255, 0.1);
+          color: white;
+        }
+
+        .domain-info {
+          flex: 1;
+        }
+
+        .domain-name {
+          font-weight: 500;
+          margin-bottom: 0.25rem;
+        }
+
+        .domain-description {
+          font-size: 0.8rem;
+          opacity: 0.8;
+          line-height: 1.3;
         }
 
         .chat-list {
@@ -827,6 +943,43 @@ function App() {
           <Plus size={20} />
           New Chat
         </button>
+
+        {/* Domain Selector */}
+        <div className="domain-selector">
+          <button
+            className="domain-selector-btn"
+            onClick={() => setDomainSelectorOpen(!domainSelectorOpen)}
+          >
+            {React.createElement(getDomainIcon(selectedDomain), { size: 16 })}
+            <span>{domains[selectedDomain]?.name || 'General'}</span>
+            <ChevronDown size={14} className={domainSelectorOpen ? 'rotated' : ''} />
+          </button>
+
+          {domainSelectorOpen && (
+            <div className="domain-dropdown">
+              {Object.entries(domains).map(([key, domain]) => {
+                const IconComponent = getDomainIcon(key);
+                return (
+                  <button
+                    key={key}
+                    className={`domain-option ${selectedDomain === key ? 'active' : ''}`}
+                    onClick={() => {
+                      setSelectedDomain(key);
+                      setDomainSelectorOpen(false);
+                    }}
+                  >
+                    <IconComponent size={16} />
+                    <div className="domain-info">
+                      <div className="domain-name">{domain.name}</div>
+                      <div className="domain-description">{domain.description}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <div className="chat-list">
           {chats.map(chat => (
             <div

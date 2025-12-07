@@ -20,7 +20,9 @@ from llm_system import (
     generator_chain,
     verifier_chain,
     complete_system,
-    search_and_format
+    search_and_format,
+    DOMAINS,
+    get_domain_config
 )
 
 # Load environment variables
@@ -52,6 +54,7 @@ class QueryRequest(BaseModel):
     query: str
     verbose: Optional[bool] = True
     chat_id: Optional[str] = None
+    domain: Optional[str] = "general"
 
 class QueryResponse(BaseModel):
     query: str
@@ -146,21 +149,27 @@ async def delete_chat(chat_id: str):
 @app.post("/api/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
     """
-    Process a query through the multi-LLM system
-    
+    Process a query through the multi-LLM system with domain-specific prompts
+
     This endpoint:
-    1. Generates an initial answer using Grok
-    2. Searches and verifies using DeepSeek
-    3. Synthesizes final answer using Nemotron
+    1. Generates an initial answer using Grok with domain-specific prompts
+    2. Searches and verifies using DeepSeek with domain context
+    3. Synthesizes final answer using Nemotron with domain expertise
     """
     start_time = datetime.now()
-    
+
+    # Validate domain
+    if not request.domain or request.domain not in DOMAINS:
+        request.domain = "general"
+    domain_config = get_domain_config(request.domain)
+
     # Handle Chat ID
     chat_id = request.chat_id
     if not chat_id:
         # Create new chat if not provided
-        # Use the query as the title (truncated)
-        title = request.query[:50] + "..." if len(request.query) > 50 else request.query
+        # Use the query as the title (truncated) with domain prefix
+        domain_prefix = f"[{domain_config['name']}] "
+        title = domain_prefix + (request.query[:50] + "..." if len(request.query) > 50 else request.query)
         chat_id = await asyncio.to_thread(database.create_chat, title)
     
     # Save User Message
@@ -195,10 +204,12 @@ async def process_query(request: QueryRequest):
         verifier_answer = await verifier_task
         search_results = await search_task
         
-        # Run the complete system for final answer
+        # Run the complete system for final answer with domain-specific prompts
         final_answer = await asyncio.to_thread(
-            complete_system.invoke,
-            request.query
+            run_hallucination_reduction_system,
+            request.query,
+            request.domain,
+            request.verbose or True
         )
         
         # Calculate processing time
@@ -235,10 +246,14 @@ async def process_query(request: QueryRequest):
             "timestamp": datetime.now().isoformat(),
             "success": True,
             "error": None,
-            "chat_id": chat_id
+            "chat_id": chat_id,
+            "domain": request.domain,
+            "domain_config": domain_config
         }
 
         # Save Assistant Message
+        response_data["domain"] = request.domain
+        response_data["domain_config"] = domain_config
         await asyncio.to_thread(
             database.add_message,
             chat_id,
@@ -262,7 +277,9 @@ async def process_query(request: QueryRequest):
             "timestamp": datetime.now().isoformat(),
             "success": False,
             "error": str(e),
-            "chat_id": chat_id
+            "chat_id": chat_id,
+            "domain": request.domain,
+            "domain_config": domain_config
         }
         
         # Save Error Message
@@ -345,6 +362,11 @@ async def test_models():
         results["search_tool"] = {"status": "error", "message": str(e)}
     
     return ModelTestResponse(**results)
+
+@app.get("/api/domains")
+async def get_domains():
+    """Get available domain configurations"""
+    return {"domains": DOMAINS}
 
 @app.get("/api/example-queries")
 async def get_example_queries():

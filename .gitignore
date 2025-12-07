@@ -2,4 +2,4 @@ backend/__pycache__/
 backend/.env
 frontend/node_modules/
 backend/venv/
-
+backend/models/
