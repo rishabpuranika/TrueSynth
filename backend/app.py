@@ -167,10 +167,9 @@ async def process_query(request: QueryRequest):
     chat_id = request.chat_id
     if not chat_id:
         # Create new chat if not provided
-        # Use the query as the title (truncated) with domain prefix
-        domain_prefix = f"[{domain_config['name']}] "
-        title = domain_prefix + (request.query[:50] + "..." if len(request.query) > 50 else request.query)
-        chat_id = await asyncio.to_thread(database.create_chat, title)
+        # Use the query as the title (truncated) 
+        title = (request.query[:50] + "..." if len(request.query) > 50 else request.query)
+        chat_id = await asyncio.to_thread(database.create_chat, title, request.domain)
     
     # Save User Message
     await asyncio.to_thread(

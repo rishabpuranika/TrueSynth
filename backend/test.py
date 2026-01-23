@@ -158,7 +158,11 @@ INSTRUCTIONS:
 2.  Identify any statements in the 'Generator Model' answer that are not supported by the facts in the 'Verifier Model' answer.
 3.  Synthesize a final, comprehensive answer that corrects any inaccuracies or hallucinations from the 'Generator Model' using the factual information from the 'Verifier Model'.
 4.  If the 'Verifier Model' provides more relevant or up-to-date information, prioritize it.
-5.  Present only the final, synthesized answer. Do not explain your reasoning process unless the query asks for it.
+5.  **FORMATTING:** Use Markdown to make the answer highly readable.
+    -   Use **bold** for key terms.
+    -   Use bullet points or numbered lists for steps or lists.
+    -   Use `#` Headers to organize sections.
+6.  Present only the final, synthesized answer. Do not explain your reasoning process unless the query asks for it.
 
 Final Corrected Answer:"""
 )

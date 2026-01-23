@@ -344,7 +344,7 @@ function App() {
                     {domainConfig && <span style={{ fontSize: '0.8rem', opacity: 0.8 }}> - {domainConfig.name} Context</span>}
                   </h4>
                   <div className="detail-card-content">
-                    {result.generator_answer}
+                    <ReactMarkdown children={result.generator_answer} />
                   </div>
                 </div>
 
@@ -355,7 +355,7 @@ function App() {
                     {domainConfig && <span style={{ fontSize: '0.8rem', opacity: 0.8 }}> - {domainConfig.name} Verification</span>}
                   </h4>
                   <div className="detail-card-content">
-                    {result.verifier_answer}
+                    <ReactMarkdown children={result.verifier_answer} />
                   </div>
                 </div>
 
@@ -440,38 +440,63 @@ function App() {
         </div>
 
         <div className="chat-list">
-          {chats.map(chat => (
-            <div
-              key={chat.id}
-              className={`chat-item ${currentChatId === chat.id ? 'active' : ''}`}
-              onClick={() => {
-                setCurrentChatId(chat.id);
-                if (window.innerWidth < 768) setSidebarOpen(false);
-              }}
-            >
-              <MessageSquare size={16} />
-              <div className="chat-item-title">{chat.title}</div>
+          {(() => {
+            // Group chats by domain
+            const groupedChats = chats.reduce((acc, chat) => {
+              const domain = chat.domain || 'general';
+              if (!acc[domain]) acc[domain] = [];
+              acc[domain].push(chat);
+              return acc;
+            }, {});
 
-              <button
-                className={`chat-menu-btn ${menuOpenId === chat.id ? 'active' : ''}`}
-                onClick={(e) => toggleMenu(e, chat.id)}
-              >
-                <MoreVertical size={16} />
-              </button>
+            // Sort domains: general first, then others
+            const sortedDomains = Object.keys(groupedChats).sort((a, b) => {
+              if (a === 'general') return -1;
+              if (b === 'general') return 1;
+              return a.localeCompare(b);
+            });
 
-              {menuOpenId === chat.id && (
-                <div className="chat-menu-dropdown">
-                  <div
-                    className="chat-menu-item delete"
-                    onClick={(e) => deleteChat(e, chat.id)}
-                  >
-                    <Trash2 size={14} />
-                    Delete Chat
-                  </div>
+            return sortedDomains.map(domain => (
+              <div key={domain} className="chat-group">
+                <div className="chat-group-header">
+                  {domains[domain]?.name || 'Other Chats'}
+                  <span className="chat-count">{groupedChats[domain].length}</span>
                 </div>
-              )}
-            </div>
-          ))}
+                {groupedChats[domain].map(chat => (
+                  <div
+                    key={chat.id}
+                    className={`chat-item ${currentChatId === chat.id ? 'active' : ''}`}
+                    onClick={() => {
+                      setCurrentChatId(chat.id);
+                      if (window.innerWidth < 768) setSidebarOpen(false);
+                    }}
+                  >
+                    <MessageSquare size={16} />
+                    <div className="chat-item-title">{chat.title}</div>
+
+                    <button
+                      className={`chat-menu-btn ${menuOpenId === chat.id ? 'active' : ''}`}
+                      onClick={(e) => toggleMenu(e, chat.id)}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+
+                    {menuOpenId === chat.id && (
+                      <div className="chat-menu-dropdown">
+                        <div
+                          className="chat-menu-item delete"
+                          onClick={(e) => deleteChat(e, chat.id)}
+                        >
+                          <Trash2 size={14} />
+                          Delete Chat
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ));
+          })()}
         </div>
       </div>
 

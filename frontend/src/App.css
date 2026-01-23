@@ -263,6 +263,32 @@ body {
 }
 
 /* Main Content Styles */
+.chat-group {
+  margin-bottom: 1.5rem;
+}
+
+.chat-group-header {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  /* Ensure this var exists or use rgba(255,255,255,0.5) */
+  margin-bottom: 0.5rem;
+  padding: 0 0.5rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chat-count {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  color: var(--text-primary);
+}
+
 .main-content {
   flex: 1;
   display: flex;

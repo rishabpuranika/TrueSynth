@@ -16,9 +16,17 @@ def init_db():
         CREATE TABLE IF NOT EXISTS chats (
             id TEXT PRIMARY KEY,
             title TEXT,
-            created_at TIMESTAMP
+            created_at TIMESTAMP,
+            domain TEXT DEFAULT 'general'
         )
     ''')
+
+    # Check if domain column exists (migration for existing db)
+    c.execute("PRAGMA table_info(chats)")
+    columns = [info[1] for info in c.fetchall()]
+    if 'domain' not in columns:
+        print("Migrating database: Adding domain column to chats table")
+        c.execute("ALTER TABLE chats ADD COLUMN domain TEXT DEFAULT 'general'")
     
     # Create messages table
     c.execute('''
@@ -50,7 +58,8 @@ def get_all_chats() -> List[Dict]:
         chats.append({
             "id": row["id"],
             "title": row["title"],
-            "created_at": row["created_at"]
+            "created_at": row["created_at"],
+            "domain": row["domain"] if "domain" in row.keys() else "general"
         })
     
     conn.close()
@@ -78,7 +87,7 @@ def get_chat_messages(chat_id: str) -> List[Dict]:
     conn.close()
     return messages
 
-def create_chat(title: str = None) -> str:
+def create_chat(title: str = None, domain: str = "general") -> str:
     """Create a new chat session"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -89,8 +98,8 @@ def create_chat(title: str = None) -> str:
     if not title:
         title = "New Chat"
         
-    c.execute('INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)',
-              (chat_id, title, created_at))
+    c.execute('INSERT INTO chats (id, title, created_at, domain) VALUES (?, ?, ?, ?)',
+              (chat_id, title, created_at, domain))
     
     conn.commit()
     conn.close()
