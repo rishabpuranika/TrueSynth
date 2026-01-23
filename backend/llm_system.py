@@ -172,21 +172,21 @@ Original Query: {{query}}
 
 ---
 
-Answer 1 (from a creative but potentially unreliable model):
+Generator Model (creative but potentially unreliable):
 {{generator_answer}}
 
 ---
 
-Answer 2 (grounded in web search results):
+Verifier Model (grounded in web search results):
 {{verifier_answer}}
 
 ---
 
 INSTRUCTIONS:
-1.  Carefully compare 'Answer 1' against 'Answer 2'.
-2.  Identify any statements in 'Answer 1' that are not supported by the facts in 'Answer 2'.
-3.  Synthesize a final, comprehensive answer that corrects any inaccuracies or hallucinations from 'Answer 1' using the factual information from 'Answer 2'.
-4.  If 'Answer 2' provides more relevant or up-to-date information, prioritize it.
+1.  Carefully compare the 'Generator Model' answer against the 'Verifier Model' answer.
+2.  Identify any statements in the 'Generator Model' answer that are not supported by the facts in the 'Verifier Model' answer.
+3.  Synthesize a final, comprehensive answer that corrects any inaccuracies or hallucinations from the 'Generator Model' using the factual information from the 'Verifier Model'.
+4.  If the 'Verifier Model' provides more relevant or up-to-date information, prioritize it.
 5.  Present only the final, synthesized answer. Do not explain your reasoning process unless the query asks for it.
 
 Final Corrected Answer:"""

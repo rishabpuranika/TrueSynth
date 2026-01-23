@@ -1,5 +1,13 @@
-crewai
-langchain-ibm
-crewai-tools
-langchain-openai
+# Core API
+fastapi
+uvicorn[standard]
 python-dotenv
+
+# LangChain dependencies
+langchain
+langchain-core
+langchain-community
+langchain-openai
+
+# Search tool
+tavily-python
