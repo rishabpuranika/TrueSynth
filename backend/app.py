@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 import os
 import asyncio
+import time
 from datetime import datetime
 import dotenv
 import database
@@ -16,6 +17,8 @@ import database
 # Import the LLM system module
 from llm_system import (
     run_hallucination_reduction_system,
+    run_comparer_only,
+    run_verifier_with_context,
     test_individual_models,
     generator_chain,
     verifier_chain,
@@ -56,6 +59,13 @@ class QueryRequest(BaseModel):
     chat_id: Optional[str] = None
     domain: Optional[str] = "general"
 
+class TimingMetrics(BaseModel):
+    generator: Optional[float] = None
+    verifier: Optional[float] = None
+    search: Optional[float] = None
+    comparer: Optional[float] = None
+    total: float
+
 class QueryResponse(BaseModel):
     query: str
     generator_answer: Optional[str] = None
@@ -63,6 +73,7 @@ class QueryResponse(BaseModel):
     final_answer: str
     search_results: Optional[List[Dict]] = None
     processing_time: float
+    timing: Optional[TimingMetrics] = None
     timestamp: str
     success: bool
     error: Optional[str] = None
@@ -80,29 +91,62 @@ class ModelTestResponse(BaseModel):
     search_tool: Dict[str, Any]
 
 # Utility Functions
-async def run_generator_async(query: str) -> str:
-    """Run generator chain asynchronously"""
+async def run_generator_async(query: str) -> tuple[str, float]:
+    """Run generator chain asynchronously, returns (result, time_taken)"""
+    start = time.time()
     try:
         result = await asyncio.to_thread(generator_chain.invoke, query)
-        return result
+        elapsed = time.time() - start
+        return result, elapsed
     except Exception as e:
-        return f"Generator error: {str(e)}"
+        elapsed = time.time() - start
+        return f"Generator error: {str(e)}", elapsed
 
-async def run_verifier_async(query: str) -> str:
-    """Run verifier chain asynchronously"""
+async def run_verifier_async(query: str) -> tuple[str, float]:
+    """Run verifier chain asynchronously, returns (result, time_taken)"""
+    start = time.time()
     try:
         result = await asyncio.to_thread(verifier_chain.invoke, query)
-        return result
+        elapsed = time.time() - start
+        return result, elapsed
     except Exception as e:
-        return f"Verifier error: {str(e)}"
+        elapsed = time.time() - start
+        return f"Verifier error: {str(e)}", elapsed
 
-async def run_search_async(query: str) -> Dict:
-    """Run search asynchronously"""
+async def run_verifier_with_context_async(query: str, context: str, domain: str) -> tuple[str, float]:
+    """Run verifier with pre-fetched context asynchronously, returns (result, time_taken)"""
+    start = time.time()
+    try:
+        result = await asyncio.to_thread(run_verifier_with_context, query, context, domain)
+        elapsed = time.time() - start
+        return result, elapsed
+    except Exception as e:
+        elapsed = time.time() - start
+        return f"Verifier error: {str(e)}", elapsed
+
+async def run_search_async(query: str) -> tuple[Dict, float]:
+    """Run search asynchronously, returns (result, time_taken)"""
+    start = time.time()
     try:
         result = await asyncio.to_thread(search_and_format, query)
-        return result
+        elapsed = time.time() - start
+        return result, elapsed
     except Exception as e:
-        return {"query": query, "context": f"Search error: {str(e)}"}
+        elapsed = time.time() - start
+        return {"query": query, "context": f"Search error: {str(e)}"}, elapsed
+
+async def run_search_then_verify(query: str, domain: str) -> tuple[Dict, float, str, float]:
+    """Run search, then immediately start verifier with results. Returns (search_results, search_time, verifier_answer, verifier_time)"""
+    # Step 1: Search
+    search_results, search_time = await run_search_async(query)
+    print(f"[TIMING] Search completed: {search_time:.2f}s -> Starting Verifier immediately...")
+    
+    # Step 2: Immediately start verifier with search context
+    search_context = search_results.get("context", "")
+    verifier_answer, verifier_time = await run_verifier_with_context_async(query, search_context, domain)
+    print(f"[TIMING] Verifier completed: {verifier_time:.2f}s")
+    
+    return search_results, search_time, verifier_answer, verifier_time
 
 # API Endpoints
 @app.get("/")
@@ -152,7 +196,7 @@ async def process_query(request: QueryRequest):
     Process a query through the multi-LLM system with domain-specific prompts
 
     This endpoint:
-    1. Generates an initial answer using Grok with domain-specific prompts
+    1. Generates an initial answer using Llama with domain-specific prompts
     2. Searches and verifies using DeepSeek with domain context
     3. Synthesizes final answer using Nemotron with domain expertise
     """
@@ -193,29 +237,54 @@ async def process_query(request: QueryRequest):
                 detail="Missing required API keys. Please configure all API keys."
             )
         
-        # Run all components in parallel for better performance
+        # PIPELINE: Generator runs in parallel with (Search -> Verifier)
+        # Generator:              |████████████████████████|
+        # Search -> Verifier:     |████|██████████████████████|
+        # Comparer:                                            |████████|
+        print(f"\n[TIMING] Starting pipeline: Generator || (Search -> Verifier)...")
+        
+        # Start both pipelines in parallel
         generator_task = asyncio.create_task(run_generator_async(request.query))
-        verifier_task = asyncio.create_task(run_verifier_async(request.query))
-        search_task = asyncio.create_task(run_search_async(request.query))
-        
-        # Wait for all tasks to complete
-        generator_answer = await generator_task
-        verifier_answer = await verifier_task
-        search_results = await search_task
-        
-        # Run the complete system for final answer with domain-specific prompts
-        final_answer = await asyncio.to_thread(
-            run_hallucination_reduction_system,
-            request.query,
-            request.domain,
-            request.verbose or True
+        search_verify_task = asyncio.create_task(
+            run_search_then_verify(request.query, request.domain)
         )
+        
+        # Wait for both pipelines to complete
+        generator_answer, generator_time = await generator_task
+        print(f"[TIMING] Generator completed: {generator_time:.2f}s")
+        
+        search_results, search_time, verifier_answer, verifier_time = await search_verify_task
+        
+        search_context = search_results.get("context", "")
+        
+        # Run Comparer with all results
+        print(f"[TIMING] Starting Comparer...")
+        comparer_start = time.time()
+        final_answer = await asyncio.to_thread(
+            run_comparer_only,
+            request.query,
+            generator_answer,
+            verifier_answer,
+            request.domain
+        )
+        comparer_time = time.time() - comparer_start
+        print(f"[TIMING] Comparer completed: {comparer_time:.2f}s")
         
         # Calculate processing time
         processing_time = (datetime.now() - start_time).total_seconds()
+        print(f"[TIMING] ========== TOTAL: {processing_time:.2f}s ==========")
         
-        # Parse search results for frontend display
-        search_context = search_results.get("context", "")
+        # Build timing metrics
+        timing_metrics = TimingMetrics(
+            generator=round(generator_time, 2),
+            verifier=round(verifier_time, 2),
+            search=round(search_time, 2),
+            comparer=round(comparer_time, 2),
+            total=round(processing_time, 2)
+        )
+        
+        
+        # Parse search results for frontend display (search_context already defined in Phase 2)
         parsed_search_results = []
         
         if "Result" in search_context:
@@ -242,6 +311,7 @@ async def process_query(request: QueryRequest):
             "final_answer": final_answer,
             "search_results": parsed_search_results if request.verbose else None,
             "processing_time": processing_time,
+            "timing": timing_metrics,
             "timestamp": datetime.now().isoformat(),
             "success": True,
             "error": None,
@@ -250,7 +320,9 @@ async def process_query(request: QueryRequest):
             "domain_config": domain_config
         }
 
-        # Save Assistant Message
+        # Save Assistant Message (convert Pydantic models to dicts for JSON serialization)
+        db_response_data = response_data.copy()
+        db_response_data["timing"] = timing_metrics.model_dump() if timing_metrics else None
         response_data["domain"] = request.domain
         response_data["domain_config"] = domain_config
         await asyncio.to_thread(
@@ -258,7 +330,7 @@ async def process_query(request: QueryRequest):
             chat_id,
             "assistant",
             final_answer,
-            response_data # Save full details in metadata
+            db_response_data  # Save full details in metadata
         )
 
         return QueryResponse(**response_data)
@@ -294,7 +366,7 @@ async def process_query(request: QueryRequest):
 
 @app.get("/api/test-models", response_model=ModelTestResponse)
 async def test_models():
-    """Test individual model connections"""
+    """Test individual model connections with timing"""
     test_query = "What is the capital of France?"
     
     results = {
@@ -306,57 +378,63 @@ async def test_models():
     
     # Test Generator
     try:
-        gen_result = await run_generator_async(test_query)
+        gen_result, gen_time = await run_generator_async(test_query)
         if gen_result and "error" not in gen_result.lower():
             results["generator"] = {
                 "status": "success",
-                "message": "Generator (Grok-4-fast) is working",
+                "message": "Generator (deepseek-r1:1.5b via Ollama) is working",
+                "time": round(gen_time, 2),
                 "sample": gen_result[:100] + "..."
             }
         else:
-            results["generator"] = {"status": "error", "message": gen_result}
+            results["generator"] = {"status": "error", "message": gen_result, "time": round(gen_time, 2)}
     except Exception as e:
         results["generator"] = {"status": "error", "message": str(e)}
     
     # Test Verifier
     try:
-        ver_result = await run_verifier_async(test_query)
+        ver_result, ver_time = await run_verifier_async(test_query)
         if ver_result and "error" not in ver_result.lower():
             results["verifier"] = {
                 "status": "success",
                 "message": "Verifier (DeepSeek) is working",
+                "time": round(ver_time, 2),
                 "sample": ver_result[:100] + "..."
             }
         else:
-            results["verifier"] = {"status": "error", "message": ver_result}
+            results["verifier"] = {"status": "error", "message": ver_result, "time": round(ver_time, 2)}
     except Exception as e:
         results["verifier"] = {"status": "error", "message": str(e)}
     
     # Test Comparer (using complete system)
     try:
+        comparer_start = time.time()
         comp_result = await asyncio.to_thread(complete_system.invoke, test_query)
+        comp_time = time.time() - comparer_start
         if comp_result and "error" not in comp_result.lower():
             results["comparer"] = {
                 "status": "success",
                 "message": "Comparer (Nemotron) is working",
+                "time": round(comp_time, 2),
                 "sample": comp_result[:100] + "..."
             }
         else:
-            results["comparer"] = {"status": "error", "message": comp_result}
+            results["comparer"] = {"status": "error", "message": comp_result, "time": round(comp_time, 2)}
     except Exception as e:
         results["comparer"] = {"status": "error", "message": str(e)}
     
     # Test Search Tool
     try:
-        search_result = await run_search_async(test_query)
+        search_result, search_time = await run_search_async(test_query)
         if search_result and "context" in search_result:
             results["search_tool"] = {
                 "status": "success",
                 "message": "Tavily Search is working",
+                "time": round(search_time, 2),
                 "sample": search_result["context"][:100] + "..."
             }
         else:
-            results["search_tool"] = {"status": "error", "message": "No search results"}
+            results["search_tool"] = {"status": "error", "message": "No search results", "time": round(search_time, 2)}
     except Exception as e:
         results["search_tool"] = {"status": "error", "message": str(e)}
     
@@ -372,14 +450,14 @@ async def get_example_queries():
     """Get example queries for testing"""
     return {
         "queries": [
-            "What were the key outcomes of the 2024 Nobel Prize announcements?",
+            "What were the key outcomes of the 2026 Nobel Prize announcements?",
             "What is the current status of the James Webb Space Telescope's latest discoveries?",
-            "Explain the latest breakthroughs in quantum computing from 2024",
-            "What are the most recent updates to Python 3.13 released in 2024?",
-            "Who won the Formula 1 World Championship in 2024?",
-            "Compare F1 standings 2024 and 2023",
+            "Explain the latest breakthroughs in quantum computing from 2026",
+            "What are the most recent updates to Python 3.13 released in 2026?",
+            "Who won the Formula 1 World Championship in 2026?",
+            "Compare F1 standings 2025 and 2024",
             "What are the latest developments in AI safety research?",
-            "Summarize the recent climate change reports from 2024",
+            "Summarize the recent climate change reports from 2025",
         ]
     }
 

@@ -81,65 +81,64 @@ def get_domain_config(domain: str = "general") -> Dict[str, Any]:
 # Base URL for OpenRouter
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# Generator Model - Creative but potentially hallucinatory
-generator_llm = None
-if openrouter_api_key1:
-    generator_llm = ChatOpenAI(
-        model="meta-llama/llama-3.3-70b-instruct:free",
-        temperature=0.7,
-        openai_api_base=OPENROUTER_BASE_URL,
-        openai_api_key=openrouter_api_key1,
-        default_headers={
-            "HTTP-Referer": "http://localhost:3000",
-            "X-Title": "Multi-LLM Hallucination Reduction System"
-        }
-    )
+# Generator Model - Creative but potentially hallucinatory (Local Ollama)
 
-# Verifier Model - Grounded and factual
-verifier_llm = None
-if openrouter_api_key2:
-    verifier_llm = ChatOpenAI(
-        model="tngtech/deepseek-r1t-chimera:free",
-        temperature=0.2,
-        openai_api_base=OPENROUTER_BASE_URL,
-        openai_api_key=openrouter_api_key2,
-        default_headers={
-            "HTTP-Referer": "http://localhost:3000",
-            "X-Title": "Multi-LLM Hallucination Reduction System"
-        }
-    )
+# using openrouter free model
+# generator_llm=ChatOpenAI(
+#     model="openrouter/free",
+#     temperature=0.7,
+#     openai_api_base=OPENROUTER_BASE_URL,
+#     openai_api_key=openrouter_api_key1,
+#     default_headers={
+#         "HTTP-Referer": "http://localhost:3000",
+#         "X-Title": "Multi-LLM Hallucination Reduction System"
+#     }
+# ) 
+
+# Using llama3.2 - faster and better for creative generation than deepseek-r1:1.5b
+generator_llm = ChatOpenAI(
+    model="llama3.2:latest",
+    temperature=0.7,
+    max_tokens=500,
+    openai_api_base="http://localhost:11434/v1",
+    openai_api_key="ollama",  # Ollama doesn't require a real key
+)
+
+# Verifier Model - Grounded and factual (using fast llama-3.1-8b instead of slow deepseek-r1)
+verifier_llm = ChatOpenAI(
+    model="openrouter/free",
+    temperature=0.3,
+    openai_api_base=OPENROUTER_BASE_URL,
+    openai_api_key=openrouter_api_key2,
+    default_headers={
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "Multi-LLM Hallucination Reduction System"
+    }
+)
 
 # Comparer Model - Critical reasoner and synthesizer
-comparer_llm = None
-if openrouter_api_key3:
-    comparer_llm = ChatOpenAI(
-        model="nvidia/nemotron-nano-9b-v2:free",
-        temperature=0.2,
-        openai_api_base=OPENROUTER_BASE_URL,
-        openai_api_key=openrouter_api_key3,
-        default_headers={
-            "HTTP-Referer": "http://localhost:3000",
-            "X-Title": "Multi-LLM Hallucination Reduction System"
-        }
-    )
+comparer_llm = ChatOpenAI(
+    model="nvidia/nemotron-nano-9b-v2:free",
+    temperature=0.4,
+    openai_api_base=OPENROUTER_BASE_URL,
+    openai_api_key=openrouter_api_key3,
+    default_headers={
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "Multi-LLM Hallucination Reduction System"
+    }
+)
 
 # ===========================
 # SEARCH TOOL INITIALIZATION
 # ===========================
 
-search_tool = None
-if tavily_api_key:
-    try:
-        search_tool = TavilySearchResults(
-            api_key=tavily_api_key,
-            max_results=5,
-            search_depth="advanced",
-            include_answer=True,
-            include_raw_content=False,
-        )
-        print(f"✅ Tavily Search Tool initialized successfully")
-    except Exception as e:
-        print(f"❌ Error initializing Tavily Search Tool: {e}")
+search_tool = TavilySearchResults(
+    api_key=tavily_api_key,
+    max_results=5,
+    search_depth="advanced",
+    include_answer=True,
+    include_raw_content=False,
+)
 
 # ===========================
 # PROMPT TEMPLATES
@@ -371,6 +370,63 @@ def run_hallucination_reduction_system(query: str, domain: str = "general", verb
         return final_answer
     except Exception as e:
         return f"System error: {e}"
+
+def run_comparer_only(query: str, generator_answer: str, verifier_answer: str, domain: str = "general") -> str:
+    """
+    Run only the comparer model with pre-computed generator and verifier answers.
+    This is much faster as it avoids re-running generator and verifier.
+    """
+    domain_config = get_domain_config(domain)
+    
+    # Create domain-specific comparer template
+    comp_template = create_comparer_prompt_template(
+        "You are a meticulous fact-checking and synthesis agent specialized in " + 
+        domain_config["description"].lower() + 
+        ". Your goal is to produce the most accurate and reliable answer to the user's query by comparing two different AI-generated answers."
+    )
+    
+    if not comparer_llm:
+        return "Comparer model not initialized. Please check API keys."
+    
+    try:
+        # Format the prompt with the pre-computed answers
+        messages = comp_template.format_messages(
+            query=query,
+            generator_answer=generator_answer,
+            verifier_answer=verifier_answer
+        )
+        response = comparer_llm.invoke(messages)
+        return response.content
+    except Exception as e:
+        return f"Comparer error: {e}"
+
+def run_verifier_with_context(query: str, context: str, domain: str = "general") -> str:
+    """
+    Run only the verifier model with pre-fetched search context.
+    This eliminates the duplicate search call that was inside verifier_chain.
+    """
+    domain_config = get_domain_config(domain)
+    
+    # Create domain-specific verifier template
+    ver_template = create_verifier_prompt_template(
+        "You are a factual assistant specialized in " + 
+        domain_config["description"].lower() + 
+        ". Answer the following user query based ONLY on the provided search results context. Do not use any of your internal knowledge. If the context does not contain the answer, state that you cannot answer based on the information provided."
+    )
+    
+    if not verifier_llm:
+        return "Verifier model not initialized. Please check API keys."
+    
+    try:
+        # Format the prompt with the pre-fetched context
+        messages = ver_template.format_messages(
+            query=query,
+            context=context
+        )
+        response = verifier_llm.invoke(messages)
+        return response.content
+    except Exception as e:
+        return f"Verifier error: {e}"
 
 def test_individual_models(query: str = "What is the capital of France?"):
     """Test each model individually to ensure they're working properly."""

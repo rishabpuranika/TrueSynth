@@ -11,3 +11,15 @@ langchain-openai
 
 # Search tool
 tavily-python
+
+# Evaluation Metrics
+nltk
+rouge-score
+bert-score
+pandas
+tqdm
+scikit-learn
+torch
+langchain-ollama
+datasets
+requests
