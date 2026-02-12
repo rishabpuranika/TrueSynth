@@ -23,3 +23,4 @@ torch
 langchain-ollama
 datasets
 requests
+tabulate

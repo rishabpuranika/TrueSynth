@@ -1,0 +1,2 @@
+- read all the lines and rectify issues
+- remove excess comments and code

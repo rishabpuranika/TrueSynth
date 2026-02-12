@@ -7,7 +7,7 @@ Modified for FastAPI Backend Integration
 import os
 import time
 from typing import Dict, Any, List
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableParallel, RunnableLambda
 from langchain_community.tools.tavily_search import TavilySearchResults
@@ -26,7 +26,7 @@ tavily_api_key = os.getenv("TAVILY_API_KEY")
 openrouter_api_key1 = os.getenv("OPENROUTER_API_KEY1")
 openrouter_api_key2 = os.getenv("OPENROUTER_API_KEY2")
 openrouter_api_key3 = os.getenv("OPENROUTER_API_KEY3")
-
+openrouter_api_key4 = os.getenv("OPENROUTER_API_KEY4")
 # ===========================
 # DOMAIN CONFIGURATION
 # ===========================
@@ -108,8 +108,9 @@ generator_llm = ChatOpenAI(
 verifier_llm = ChatOpenAI(
     model="openrouter/free",
     temperature=0.3,
+    max_retries=5,
     openai_api_base=OPENROUTER_BASE_URL,
-    openai_api_key=openrouter_api_key2,
+    openai_api_key=openrouter_api_key4,
     default_headers={
         "HTTP-Referer": "http://localhost:3000",
         "X-Title": "Multi-LLM Hallucination Reduction System"
@@ -120,8 +121,9 @@ verifier_llm = ChatOpenAI(
 comparer_llm = ChatOpenAI(
     model="nvidia/nemotron-nano-9b-v2:free",
     temperature=0.4,
+    max_retries=5,
     openai_api_base=OPENROUTER_BASE_URL,
-    openai_api_key=openrouter_api_key3,
+    openai_api_key=openrouter_api_key4,
     default_headers={
         "HTTP-Referer": "http://localhost:3000",
         "X-Title": "Multi-LLM Hallucination Reduction System"
@@ -150,18 +152,37 @@ def create_generator_prompt_template(system_prompt: str = "You are a helpful AI 
 
 Query: {{query}}
 
-Answer:"""
+Answer:
+
+[Your answer here]
+
+CONFIDENCE_SCORE: [0-100]"""
     )
 
-def create_verifier_prompt_template(system_prompt: str = "You are a factual assistant. Answer the following user query based ONLY on the provided search results context. Do not use any of your internal knowledge. If the context does not contain the answer, state that you cannot answer based on the information provided."):
-    return ChatPromptTemplate.from_template(
-        f"""{system_prompt}
+def create_verifier_prompt_template(system_prompt: str = "You are a factual verifier. Your job is to check the Generator's answer against the search results context. You must identify specific errors, myths, or lack of evidence."):
+    verifier_template = """{system_prompt}
 
-Context:
-{{context}}
+    CONTEXT:
+    {context}
 
-Query: {{query}}"""
-    )
+    USER QUERY: {query}
+    GENERATOR ANSWER: {generator_answer}
+
+    INSTRUCTIONS:
+    1.  Verify the Generator's answer against the provided CONTEXT.
+    2.  Identify any hallucinations, false claims, or unsupported statements.
+    3.  **Scientific Consensus**: Is the claim supported by major scientific bodies? (e.g., "Nuclear power safety", "Global warming")
+    4.  **Advertising vs. Fact**: Explicitly check if the claim is a slogan or marketing myth (e.g., "Meow Mix", "Diamonds are rare").
+    5.  **Physical Implications**: For biological/physical questions, check all implications (e.g., if a shark stops swimming, does it float or sink?).
+
+    OUTPUT FORMAT:
+    -   **Fact Check**: [Statement from Generator] -> [Verified/Debunked/Nuanced] because [Evidence from Context]
+    -   **Correction**: [Accurate Information if likely incorrect] (or "None")
+    
+    FACTUAL_ACCURACY_SCORE: [0-100] (0=Completely False, 100=Completely True based on context)
+    HALLUCINATION_SCORE: [0-100] (0=No hallucination, 100=Severe hallucination)
+    """
+    return PromptTemplate(template=verifier_template, input_variables=["system_prompt", "context", "query", "generator_answer"])
 
 def create_comparer_prompt_template(system_prompt: str = "You are a meticulous fact-checking and synthesis agent. Your goal is to produce the most accurate and reliable answer to the user's query by comparing two different AI-generated answers."):
     return ChatPromptTemplate.from_template(
@@ -186,13 +207,22 @@ INSTRUCTIONS:
 2.  Identify any statements in the 'Generator Model' answer that are not supported by the facts in the 'Verifier Model' answer.
 3.  Synthesize a final, comprehensive answer that corrects any inaccuracies or hallucinations from the 'Generator Model' using the factual information from the 'Verifier Model'.
 4.  If the 'Verifier Model' provides more relevant or up-to-date information, prioritize it.
-5.  **FORMATTING:** Use Markdown to make the answer highly readable.
+5.  **CRITICAL:** Present the answer as a cohesive, standalone response. **DO NOT** mention "Generator", "Verifier", "Component", or "Search Results" explicitly in the final output. The user should not know this answer was synthesized from multiple sources. Just state the facts directly.
+6.  **MYTH BUSTING:** If the Generator's answer relies on a common myth, partial truth, or advertising slogan (e.g. "cats ask for it by name"), explicitely correcting it using the Verifier's facts.
+7.  **FORMATTING:** Use Markdown to make the answer highly readable.
     -   Use **bold** for key terms.
     -   Use bullet points or numbered lists for steps or lists.
     -   Use `#` Headers to organize sections.
-6.  Present only the final, synthesized answer. Do not explain your reasoning process unless the query asks for it.
+8.  Present only the final, synthesized answer. Do not explain your reasoning process unless the query asks for it.
 
-Final Corrected Answer:"""
+8.  Present only the final, synthesized answer. Do not explain your reasoning process unless the query asks for it.
+
+Final Corrected Answer:
+
+[Your Final Answer Here]
+
+AGREEMENT_SCORE: [0-100] (Semantic Refinement of Generator vs Verifier)
+FINAL_TRUST_SCORE: [0-100] (Overall reliability of this answer)"""
     )
 
 # Default templates for backward compatibility
@@ -295,14 +325,44 @@ else:
 # DOMAIN-SPECIFIC FUNCTIONS
 # ===========================
 
+def create_search_qa_prompt_template(system_prompt: str = "You are a factual assistant. Answer the following user query based ONLY on the provided search results context."):
+    """Create a prompt template for answering questions based on search context."""
+    return ChatPromptTemplate.from_template(
+        f"""{system_prompt}
+
+    CONTEXT:
+    {{context}}
+
+    USER QUERY: {{query}}
+
+    INSTRUCTIONS:
+    1.  Answer the USER QUERY based **ONLY** on the provided CONTEXT.
+    2.  If the CONTEXT does not contain the answer, state that you cannot answer based on the information provided.
+    3.  Do not use internal knowledge not present in the context.
+    4.  Extract key facts, figures, and consensus from the context.
+
+    FACTUAL_ACCURACY_SCORE: [0-100] (Confidence in the answer based on context)
+    """
+    )
+
 def create_domain_chains(domain: str = "general"):
     """Create domain-specific chains with custom prompts."""
     domain_config = get_domain_config(domain)
 
     # Create domain-specific prompt templates
     gen_template = create_generator_prompt_template(domain_config["system_prompt"])
-    ver_template = create_verifier_prompt_template("You are a factual assistant specialized in " + domain_config["description"].lower() + ". Answer the following user query based ONLY on the provided search results context. Do not use any of your internal knowledge. If the context does not contain the answer, state that you cannot answer based on the information provided.")
-    comp_template = create_comparer_prompt_template("You are a meticulous fact-checking and synthesis agent specialized in " + domain_config["description"].lower() + ". Your goal is to produce the most accurate and reliable answer to the user's query by comparing two different AI-generated answers.")
+    
+    # CHANGED: Use Search QA Template for parallel execution
+    # The Verifier now acts as a "Fact Retriever" that runs in parallel with the Generator
+    ver_template = create_search_qa_prompt_template(
+        "You are a factual assistant specialized in " + domain_config["description"].lower() + 
+        ". Answer the following user query based ONLY on the provided search results context. Do not use any of your internal knowledge."
+    )
+    
+    comp_template = create_comparer_prompt_template(
+        "You are a meticulous fact-checking and synthesis agent specialized in " + domain_config["description"].lower() + 
+        ". Your goal is to produce the most accurate and reliable answer to the user's query by comparing two different AI-generated answers."
+    )
 
     # Create domain-specific chains
     domain_generator_chain = None
@@ -362,12 +422,88 @@ def run_hallucination_reduction_system(query: str, domain: str = "general", verb
     # Create domain-specific chains
     domain_chains = create_domain_chains(domain)
 
-    if not domain_chains["complete_system"]:
+    if not domain_chains["generator_chain"] or not domain_chains["verifier_chain"] or not domain_chains["comparer_chain"]:
         return "System not properly initialized. Please check API keys."
 
     try:
-        final_answer = domain_chains["complete_system"].invoke(query)
-        return final_answer
+        # Step 1: Run Generator and Verifier in parallel
+        parallel_chain = RunnableParallel(
+            query=RunnablePassthrough(),
+            generator_answer=domain_chains["generator_chain"],
+            verifier_answer=domain_chains["verifier_chain"],
+        )
+        intermediate_results = parallel_chain.invoke(query)
+        
+        # Step 2: Run Comparer
+        final_answer_raw = domain_chains["comparer_chain"].invoke(intermediate_results)
+        
+        # Step 3: Parse Scores
+        import re
+        def parse_score(text, key, default=0.0):
+            # 1. Try exact match with colon (e.g., "FACTUAL_ACCURACY_SCORE: 85")
+            match = re.search(f"{key}:\\s*\\[?(\\d+(?:\\.\\d+)?)", text, re.IGNORECASE)
+            if match:
+                return float(match.group(1))
+            
+            # 2. Try with spaces instead of underscores (e.g., "FACTUAL ACCURACY SCORE: 85")
+            key_spaced = key.replace("_", " ")
+            match = re.search(f"{key_spaced}:\\s*\\[?(\\d+(?:\\.\\d+)?)", text, re.IGNORECASE)
+            if match:
+                return float(match.group(1))
+                
+            # 3. Try just the short key (e.g., "ACCURACY: 85")
+            if "SCORE" in key:
+                short_key = key.split("_")[0] # e.g., CONFIDENCE or FACTUAL
+                # Handle "Final Trust": key is FINAL_TRUST_SCORE -> short is FINAL. 
+                # That's not good if text is "Final Trust Score".
+                # Let's try more flexible matching.
+                
+                # specific for Final Trust
+                if "TRUST" in key:
+                     match = re.search(r"Trust.*?:\s*\[?(\d+(?:\.\d+)?)", text, re.IGNORECASE)
+                     if match: return float(match.group(1))
+                     
+                short_key = key.split("_")[0]
+                match = re.search(f"{short_key}[^\\n]*?:\\s*\\[?(\\d+(?:\\.\\d+)?)", text, re.IGNORECASE)
+                if match:
+                    return float(match.group(1))
+            
+            # 4. Fallback: Look for the key and take the first number that appears after it on the same line
+            key_parts = key.split("_")
+            primary_key = key_parts[0] # e.g. FACTUAL
+            fallback_pattern = f"{primary_key}.*?(\\d+(?:\\.\\d+)?)"
+            match = re.search(fallback_pattern, text, re.IGNORECASE)
+            if match:
+                 return float(match.group(1))
+
+            return default
+
+        confidence = parse_score(intermediate_results["generator_answer"], "CONFIDENCE_SCORE")
+        factual_accuracy = parse_score(intermediate_results["verifier_answer"], "FACTUAL_ACCURACY_SCORE")
+        hallucination_score = parse_score(intermediate_results["verifier_answer"], "HALLUCINATION_SCORE")
+        agreement_score = parse_score(final_answer_raw, "AGREEMENT_SCORE")
+        final_trust_score = parse_score(final_answer_raw, "FINAL_TRUST_SCORE")
+        
+        # Clean up final answer (remove the score block)
+        clean_answer = re.sub(r"AGREEMENT_SCORE:.*", "", final_answer_raw, flags=re.DOTALL | re.IGNORECASE).strip()
+        clean_answer = re.sub(r"FINAL_TRUST_SCORE:.*", "", clean_answer, flags=re.DOTALL | re.IGNORECASE).strip()
+        
+        # Structure the return
+        return {
+            "answer": clean_answer,
+            "scores": {
+                "Confidence": confidence,
+                "Factual Accuracy": factual_accuracy,
+                "Hallucination Score": hallucination_score,
+                "Agreement": agreement_score,
+                "Final Trust": final_trust_score
+            },
+            "debug": {
+                "generator_raw": intermediate_results["generator_answer"],
+                "verifier_raw": intermediate_results["verifier_answer"]
+            }
+        }
+
     except Exception as e:
         return f"System error: {e}"
 
@@ -408,10 +544,12 @@ def run_verifier_with_context(query: str, context: str, domain: str = "general")
     domain_config = get_domain_config(domain)
     
     # Create domain-specific verifier template
-    ver_template = create_verifier_prompt_template(
+    # CHANGED: Use new Search QA template here as well to match main logic
+    ver_template = create_search_qa_prompt_template(
         "You are a factual assistant specialized in " + 
         domain_config["description"].lower() + 
-        ". Answer the following user query based ONLY on the provided search results context. Do not use any of your internal knowledge. If the context does not contain the answer, state that you cannot answer based on the information provided."
+        ". Answer the following user query based ONLY on the provided search results context.\n\n"
+        "IMPORTANT: You MUST end your response with:\nFACTUAL_ACCURACY_SCORE: [0-100]"
     )
     
     if not verifier_llm:
